@@ -1,0 +1,87 @@
+#!/bin/bash
+
+# UTILS
+
+###
+
+MKFS=mkfs.ext2
+
+echo "$0" ARGS: "$@"
+
+
+while getopts "s:n:" opt; do
+  case $opt in
+    s)
+      echo "s:" $OPTARG
+      OPT_SIZE=$OPTARG
+      ;;
+    n)
+      echo "n:" $OPTARG
+      OPT_NAME=$OPTARG
+      ;;
+  esac
+done
+
+shift $(($OPTIND-1))
+
+RAW_WC_PATH=$1
+
+
+# Normalize path
+WC_PATH=$( cd $RAW_WC_PATH; pwd )
+
+echo  PATH: $WC_PATH
+WC_ID_PATH=$( echo $WC_PATH | sed 's#/#_._#g' )
+WC_ID=wc${WC_ID_PATH}
+WC_ID_NAME=${OPT_NAME:=default}
+WC_VG=${WC_ID}_VOL1
+WC_LV=${WC_ID}_master
+WC_BRANCH=${WC_ID}_${WC_ID_NAME}
+WC_DEVICE=/dev/${WC_VG}/${WC_LV}
+WC_BRANCH_DEVICE=/dev/${WC_VG}/${WC_BRANCH}
+echo $WC_DEVICE
+if [ ! -b $WC_DEVICE ]
+then
+  echo "ERROR: Path not init'ed. exiting..."
+  exit
+fi
+
+if [ -b $WC_BRANCH ]
+then
+  echo "ERROR: Branch [$WC_ID_NAME] already exists. exiting..."
+  exit
+fi
+
+echo ...sizing
+VG_SZ=$( vgs --units m |grep $WC_VG | sed 's/^.* \([0-9]\+\)\.[0-9]\+m .*$/\1/' )
+VG_FREE_SZ=$( vgs --units m |grep $WC_VG | sed 's/^.* \([0-9]\+\)\.[0-9]\+m$/\1/' )
+DEF_SZ=$(( $VG_SZ / 6 )) # vg_sz / 2 / 3 (half for the original lv branches get 1/3 of other half by def)
+WC_SIZE=${OPT_SIZE:=$DEF_SZ}
+if [ $WC_SIZE -ge $VG_FREE_SZ ] 
+then
+  echo "ERROR: Not enough space to allocate ${WC_SIZE}m exiting..."
+  exit
+fi
+
+echo "SZ: ${WC_SIZE}m"
+
+
+# Create snapshot
+echo lvcreate -s -L${WC_SIZE}M -n$WC_BRANCH $WC_DEVICE
+lvcreate -s -L${WC_SIZE}M -n$WC_BRANCH $WC_DEVICE
+
+echo $WC_BRANCH_DEVICE
+if [ ! -b $WC_BRANCH_DEVICE ]
+then
+  echo "ERROR: Branch not init'ed. exiting..."
+  exit
+fi
+
+# Unmount whatever is on the path
+echo umount "${WC_PATH}"
+umount "${WC_PATH}"
+
+# Mount the snapshot
+echo mount $WC_BRANCH_DEVICE "$WC_PATH"
+mount $WC_BRANCH_DEVICE "$WC_PATH"
+

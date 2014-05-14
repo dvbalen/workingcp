@@ -1,0 +1,84 @@
+#!/bin/bash
+
+WRKCP=workingcp
+
+RAW_BIN_PATH=$( dirname $0 )
+WC_BIN_PATH=$( cd "$RAW_BIN_PATH"; pwd )
+
+function display_help() {
+  cat <<FOO
+  Usage: $0 [<options>] <command> 
+  These are the most common commands
+
+  list         -- list existing working copies
+  init         -- initialize a new working copy
+  clone/branch -- Create a copy of initialized directory 
+  reset        -- reset a branch/clone/snapshot back to contents of master dir
+  mount        -- mount a branch on a specific location
+  delete       -- delete a branch
+  destroy      -- destroy a working copy (master and branches)
+
+  use "workingcp help" for full list
+FOO
+}
+
+if [ $# -lt 1 ]
+then
+  display_help $0
+  exit;
+fi
+
+WRKCP_CMD=$1
+
+# shift args
+shift 1
+
+case "$WRKCP_CMD" in
+  list)
+    # List information about existing working copies
+    exec ${WC_BIN_PATH}/workingcp.list "$@"
+    ;;
+  status)
+    echo status not implemented...
+    ;;
+  init)
+    # Initialize a directory as a working copy and create a default branch
+    exec ${WC_BIN_PATH}/workingcp.init "$@"
+    ;;
+  clone|branch)
+    # Create a new snapshot of an existing working copy
+    exec ${WC_BIN_PATH}/workingcp.branch "$@"
+    ;;
+  mount)
+    # Mount a clone/branch somewhere else
+    exec ${WC_BIN_PATH}/workingcp.mount "$@"
+    ;;
+  reset)
+    # Re-sync a branch back to the trunk
+    exec ${WC_BIN_PATH}/workingcp.reset "$@"  
+    ;;
+  delete)
+    # Delete a clone/branch
+    exec ${WC_BIN_PATH}/workingcp.delete "$@"
+    ;;
+  destroy)
+    # Destroy all working copy data (except maybe the original if kept during init)
+    echo world ending...
+    ;;
+  help)
+    # Get help
+    display_help $0
+    ;;
+  *)
+    echo Unknown command: \"$WRKCP_CMD\"
+    echo
+    display_help $0
+    ;;
+esac
+ 
+#####
+# Possible commands:
+#
+# sync/join to master
+# sizing info 
+# resize

@@ -1,0 +1,72 @@
+#!/bin/bash
+
+
+echo "$0" ARGS: "$@"
+
+
+while getopts "d:n:" opt; do
+  case $opt in
+    d)
+      echo "d:" $OPTARG
+      OPT_MNT=$OPTARG
+      ;;
+    n)
+      echo "n:" $OPTARG
+      OPT_NAME=$OPTARG
+      ;;
+  esac
+done
+
+shift $(($OPTIND-1))
+
+RAW_WC_PATH=$1
+
+# Normalize path
+WC_PATH=$( cd $RAW_WC_PATH; pwd )
+
+echo  PATH: $WC_PATH
+WC_ID_PATH=$( echo $WC_PATH | sed 's#/#_._#g' )
+WC_ID=wc${WC_ID_PATH}
+WC_ID_NAME=${OPT_NAME:=default}
+WC_VG=${WC_ID}_VOL1
+WC_LV=${WC_ID}_master
+WC_BRANCH=${WC_ID}_${WC_ID_NAME}
+WC_DEVICE=/dev/${WC_VG}/${WC_LV}
+WC_BRANCH_DEVICE=/dev/${WC_VG}/${WC_BRANCH}
+echo $WC_DEVICE
+if [ ! -b $WC_DEVICE ]
+then
+  echo "ERROR: Path not init'ed. exiting..."
+  exit
+fi
+
+echo $WC_BRANCH_DEVICE
+if [ ! -b $WC_BRANCH_DEVICE ]
+then
+  echo "ERROR: Branch [$WC_ID_NAME] doesn't exist, can't mount exiting..."
+  exit
+fi
+
+MNT_POINT=${OPT_MNT:=$WC_PATH}
+echo Mount on: $MNT_POINT
+
+if [ ! -d $MNT_POINT ]
+then
+  echo "Mount point [$MNT_POINT] doesn't exist! exiting..."
+  exit
+fi
+
+# unmount if mounted
+PREV_MNT_POINT=$( mount | grep $WC_BRANCH | cut -f3 -d' '  )
+echo umount from: $PREV_MNT_POINT
+
+if [ $PREV_MNT_POINT ]
+then
+  echo umount $PREV_MNT_POINT
+  umount $PREV_MNT_POINT || { echo "ERROR: unable to umount $MNT_POINT exiting..."; exit; }
+fi
+
+# re-mount
+echo mount $WC_BRANCH_DEVICE $MNT_POINT
+mount $WC_BRANCH_DEVICE $MNT_POINT
+

@@ -1,0 +1,133 @@
+#!/bin/bash
+
+# UTILS
+
+###
+
+
+MKFS=mkfs.ext2
+
+echo "$0" ARGS: "$@"
+
+
+while getopts "s:n:" opt; do
+  case $opt in
+    s)
+      echo "s:" $OPTARG
+      OPT_SIZE=$OPTARG
+      ;;
+    n)
+      echo "n:" $OPTARG
+      OPT_NAME=$OPTARG
+      ;;
+  esac
+done
+
+shift $(($OPTIND-1))
+
+RAW_WC_PATH=$1
+
+# Does it exist?
+if [ ! -d $RAW_WC_PATH ]
+then
+  echo "ERROR: target dir [${RAW_WC_PATH}] doesn't exist. exiting..."
+  exit
+fi
+
+# Normalize path
+WC_PATH=$( cd $RAW_WC_PATH; pwd )
+
+echo  PATH: $WC_PATH
+
+
+
+# is WC_PATH a dir?
+
+WC_ID_PATH=$( echo $WC_PATH | sed 's#/#_._#g' )
+WC_ID_NAME=${OPT_NAME:=default}
+#GET DEFAULT SIZE (max MINSZ and 2xTARGET_DIR)
+MINSZ=$(( 20971520*20 ))
+DIR_SZ=$( du -sb $WC_PATH |cut -f1 )
+echo $DIR_SZ
+DEF_SZ=$(( $DIR_SZ*2 ))
+if [[ $MINSZ -gt $DEF_SZ ]]
+then
+  echo Taking minsz
+  DEF_SZ=$MINSZ
+fi
+WC_SIZE=${OPT_SIZE:=$DEF_SZ}
+WC_SIZE_K=$(( $WC_SIZE / 1024 ))
+# Make sure there are enough LVM extents... @todo make less hacky
+WC_FILE_SIZE=$(( $WC_SIZE + (4 * 1024) ))
+
+echo Size $WC_SIZE B  $WC_SIZE_K K
+
+#WC_ID=wc${WC_ID_PATH}_.._${WC_ID_NAME}
+WC_ID=wc${WC_ID_PATH}
+
+WORK_DIR=$( dirname $WC_PATH )/.workingcp
+
+echo ID: $WC_ID
+echo WORK DIR: $WORK_DIR
+
+# @todo
+# Already init'ed?
+# Test for size
+
+#create "partition" file and mount on loopback device
+WC_STORE_FILE=$WORK_DIR/${WC_ID}.img
+
+mkdir "$WORK_DIR"
+#dd if=/dev/zero of=/opt/dvb/loop-tst1.img bs=512 count=10000
+fallocate -l $WC_FILE_SIZE $WC_STORE_FILE
+LOOP_F=$( losetup -f )
+echo losetup $LOOP_F $WC_STORE_FILE
+losetup $LOOP_F $WC_STORE_FILE
+
+# Create Physical Vol
+echo pvcreate $LOOP_F
+pvcreate $LOOP_F
+
+# Create Virtual Vol
+WC_VG=${WC_ID}_VOL1
+echo vgcreate $WC_VG $LOOP_F
+vgcreate $WC_VG $LOOP_F
+
+# Create Master Volume
+ORIG_SZ=$(( ( $WC_SIZE / 3 ) * 2 ))
+ORIG_SZ_K=$(( $ORIG_SZ / 1024 ))
+WC_LV=${WC_ID}_master
+echo lvcreate -L${ORIG_SZ_K}K -n$WC_LV $WC_VG
+lvcreate -L${ORIG_SZ_K}K -n$WC_LV $WC_VG
+
+# Make a FS on it
+WC_DEVICE=/dev/${WC_VG}/${WC_LV}
+if [ -b $WC_DEVICE ]
+then
+  echo $MKFS $WC_DEVICE
+  $MKFS $WC_DEVICE
+else
+  echo "ERROR: Couldn't find expected device [$WC_DEVICE] exiting..."
+  exit
+fi
+
+# Temporary mount 
+TMP_MOUNT="$WORK_DIR/mnt"
+
+test -d $TMP_MOUNT && echo FOUND MOUNT || mkdir $TMP_MOUNT
+
+echo mount $WC_DEVICE $TMP_MOUNT
+mount $WC_DEVICE $TMP_MOUNT
+
+# Copy data
+echo cp -r "$WC_PATH/." $TMP_MOUNT/
+cp -r "$WC_PATH/." $TMP_MOUNT/
+
+# Erase original?
+# @todo
+
+# Remount on target dir
+echo umount $WORK_DIR/mnt
+umount $WORK_DIR/mnt
+echo mount $WC_DEVICE "$WC_PATH"
+mount $WC_DEVICE "$WC_PATH"
